@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Day Predictor</title>
+    <!-- Load Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        'brand-dark': '#0f172a',
+                        'brand-blue': '#3b82f6',
+                        'brand-cyan': '#06b6d4',
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        }
+                    },
+                    animation: {
+                        fadeIn: 'fadeIn 0.5s ease-out',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom CSS for icon (Lucide replacement) */
+        .icon {
+            display: inline-block;
+            vertical-align: middle;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+        }
+
+        /* SVG icon sizes */
+        .header-icon {
+            width: 28px;
+            height: 28px;
+        }
+
+        .map-pin-icon {
+            width: 24px;
+            height: 24px;
+        }
+
+        .arrow-right-icon {
+            width: 24px;
+            height: 24px;
+        }
+
+        .refresh-icon {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Custom animation for the SVG path offset - MUST BE LINEAR for interpolation to work */
+        .gauge-progress {
+            /* Transition set low to allow rapid, structured updates from JS */
+            transition: stroke-dashoffset 0.1s linear;
+        }
+
+        /* Transition for the slider background */
+        #type-slider {
+            transition: transform 0.3s ease-in-out;
+        }
+
+        /* Transition for text colors on buttons */
+        .selector-button {
+            transition: color 0.3s ease-in-out;
+        }
+
+        /* Utility class for fading elements */
+        .opacity-0 {
+            opacity: 0;
+        }
+
+        .opacity-100 {
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body
+    class="min-h-screen bg-gradient-to-br from-slate-200 to-blue-100 flex items-center justify-center p-4 font-sans text-slate-900 transition-colors duration-500">
+
+    <div id="app-container"
+        class="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-300/50 shadow-xl transition-colors duration-500">
+
+        <!-- Header Container -->
+        <div id="app-header-container" class="transition-colors duration-500">
+            <!-- Fade Wrapper for Header Content -->
+            <div id="header-fade-wrapper"
+                class="p-4 flex items-center justify-center shadow-lg transition-opacity duration-300 ease-in-out opacity-100">
+                <!-- Inner Header Content -->
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="app-content" class="p-8">
+            <!-- Content rendered here -->
+        </div>
+    </div>
+
+    <!-- Container for the floating theme toggle -->
+    <div id="theme-toggle-root"></div>
+
+    <script>
+        // State variables
+        let view = 'input'; // 'input', 'loading', or 'result'
+        let postalCode = '';
+        let percentage = 0;
+        let finalPercentage = 0; // The calculated end value
+        let animationFrameId = null;
+        let theme = 'light';
+        let predictionType = 'drunk'; // 'drunk' or 'snow'
+        let loadingMessage = '';
+
+        // Time management for the animation
+        let animationStartTime = 0;
+        const TOTAL_ANIMATION_DURATION = 5000; // 5 seconds total for the loading process
+
+        const APP_CONTAINER = document.getElementById('app-container');
+        const APP_HEADER_CONTAINER = document.getElementById('app-header-container');
+        const HEADER_FADE_WRAPPER = document.getElementById('header-fade-wrapper');
+        const APP_CONTENT = document.getElementById('app-content');
+
+        // --- Utility Functions for Randomization ---
+        function getRandomInt(min, max) {
+            min = Math.ceil(min);
+            max = Math.floor(max);
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        // --- Easing Function (Cubic In/Out) ---
+        function easeInOutCubic(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        // --- Icon Definitions ---
+        const BeerMugIcon = `<svg class="icon header-icon mr-2" viewBox="0 0 24 24"><path d="M17 11h1a3 3 0 0 1 0 6h-1"/><path d="M9 12v6"/><path d="M13 12v6"/><path d="M14 7.5c-1 0-1.44.5-3 .5s-2-.5-3-.5-1.72.5-2.5.5a2.5 2.5 0 0 1 0-5c.78 0 1.57.5 2.5.5S9.44 2 11 2s2 1.5 3 1.5 1.72-.5 2.5-.5a2.5 2.5 0 0 1 0 5c-.78 0-1.5-.5-2.5-.5Z"/><path d="M5 8v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8"/></svg>`;
+        const SnowflakeIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon header-icon mr-2"><path d="m10 20-1.25-2.5L6 18"/><path d="M10 4 8.75 6.5 6 6"/><path d="m14 20 1.25-2.5L18 18"/><path d="m14 4 1.25 2.5L18 6"/><path d="m17 21-3-6h-4"/><path d="m17 3-3 6 1.5 3"/><path d="M2 12h6.5L10 9"/><path d="m20 10-1.5 2 1.5 2"/><path d="M22 12h-6.5L14 15"/><path d="m4 10 1.5 2L4 14"/><path d="m7 21 3-6-1.5-3"/><path d="m7 3 3 6h4"/></svg>`;
+        const MapPinIcon = `<svg class="icon map-pin-icon" viewBox="0 0 24 24"><path d="M12 22s-8-4-8-10c0-4.42 3.58-8 8-8s8 3.58 8 8c0 6-8 10-8 10z"/><circle cx="12" cy="10" r="3"/></svg>`;
+        const ArrowRightIcon = `<svg class="icon arrow-right-icon ml-3 w-6 h-6 group-hover:translate-x-1 transition-transform duration-300" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>`;
+        const RefreshCcwIcon = `<svg class="icon refresh-icon mr-2 w-4 h-4 group-hover:rotate-45 transition-transform duration-300" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="m21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="m3 21v-5h5"/></svg>`;
+        const SunIcon = `<svg class="icon w-6 h-6" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/></svg>`;
+        const MoonIcon = `<svg class="icon w-6 h-6" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`;
+
+        const ACTIVE_TEXT_CLASSES = ['text-white', 'font-bold'];
+        const INACTIVE_TEXT_CLASSES_LIGHT = ['text-slate-700'];
+        const INACTIVE_TEXT_CLASSES_DARK = ['text-slate-400'];
+
+        // --- Core Application Logic ---
+
+        function calculateDashOffset(percent, circumference) {
+            return circumference - (percent / 100) * circumference;
+        }
+
+        function handleThemeToggle() {
+            theme = theme === 'dark' ? 'light' : 'dark';
+            render();
+        }
+
+        function handleInput(event) {
+            postalCode = event.target.value;
+        }
+
+        function handleSubmit(event) {
+            event.preventDefault();
+            if (postalCode.trim().length > 0) {
+                // Set the final result to 100% as requested for the gimmick site.
+                finalPercentage = 100;
+
+                // 2. Switch to loading view
+                view = 'loading';
+                renderContent();
+
+                // 3. Start the staged animation
+                startStagedAnimation();
+            }
+        }
+
+        function handleReset() {
+            // Cancel any ongoing animation
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+
+            // Reset all state variables
+            view = 'input';
+            percentage = 0;
+            finalPercentage = 0;
+            postalCode = '';
+            animationStartTime = 0;
+            loadingMessage = '';
+
+            // Call the full render function.
+            render();
+        }
+
+        function updateGaugeAndText(percent, message) {
+            const percentText = document.getElementById('percentage-text');
+            const gaugePath = document.getElementById('gauge-progress-path');
+            const messageElement = document.getElementById('loading-message');
+
+            // 1. Update Percentage Text
+            if (percentText) {
+                // Ensure text never shows above 100%
+                percentText.textContent = `${Math.min(100, Math.round(percent))}%`;
+            }
+
+            // 2. Update Gauge
+            if (gaugePath) {
+                const radius = 150;
+                const stroke = 30;
+                const normalizedRadius = radius - stroke * 0.5;
+                const circumference = normalizedRadius * Math.PI;
+                // Corrected function call case: calculateDashOffset
+                const strokeDashoffset = calculateDashOffset(percent, circumference);
+                gaugePath.setAttribute('stroke-dashoffset', strokeDashoffset);
+            }
+
+            // 3. Update Message
+            if (messageElement && message) {
+                messageElement.textContent = message;
+            }
+        }
+
+        // --- STAGED ANIMATION LOGIC ---
+        function startStagedAnimation() {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+
+            animationStartTime = Date.now();
+
+            const animate = () => {
+                const elapsedTime = Date.now() - animationStartTime;
+                const timeRatio = Math.min(1, elapsedTime / TOTAL_ANIMATION_DURATION); // 0 to 1
+
+                let targetPercent;
+                let message;
+
+                // Define the stages
+                const stages = [
+                    { time: 0.0, percent: 0, message: "Initializing System..." },
+                    { time: 0.2, percent: 10, message: "Checking Location Data..." }, // Phase 1: Location Check
+                    // Note: This target percentage is intentionally high (80) to build tension before the final 100% snap
+                    { time: 0.8, percent: 80, message: "Running Proprietary Algorithms..." }, // Phase 2: Analysis Build-up
+                    { time: 0.9, percent: 90, message: "Finalizing Report..." },
+                    { time: 1.0, percent: finalPercentage, message: "Report Complete." } // Phase 3: Reveal
+                ];
+
+                // Determine current segment
+                let startStage = stages[0];
+                let endStage = stages[stages.length - 1];
+
+                for (let i = 0; i < stages.length - 1; i++) {
+                    if (timeRatio >= stages[i].time && timeRatio < stages[i + 1].time) {
+                        startStage = stages[i];
+                        endStage = stages[i + 1];
+                        break;
+                    }
+                }
+
+                // --- Interpolation within segment ---
+                const segmentDurationRatio = endStage.time - startStage.time;
+                const timeInSegmentRatio = timeRatio - startStage.time;
+                let progressRatio = segmentDurationRatio > 0 ? timeInSegmentRatio / segmentDurationRatio : 1;
+
+                // Use easing for smoother movement between defined target percents
+                const easedRatio = easeInOutCubic(progressRatio);
+
+                // Interpolate value
+                const valueDifference = endStage.percent - startStage.percent;
+                percentage = startStage.percent + (valueDifference * easedRatio);
+                message = endStage.message; // Use the message of the target stage
+
+                // Update UI
+                updateGaugeAndText(percentage, message);
+
+                if (timeRatio < 1) {
+                    animationFrameId = requestAnimationFrame(animate);
+                } else {
+                    // Animation complete, switch to result view
+                    view = 'result';
+                    renderContent();
+                }
+            };
+
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        // --- TRANSITION LOGIC ---
+
+        function updateTypeSelectorUI() {
+            const slider = document.getElementById('type-slider');
+            const drunkBtn = document.getElementById('drunk-btn');
+            const snowBtn = document.getElementById('snow-btn');
+
+            if (!slider || !drunkBtn || !snowBtn) return;
+
+            const isDark = theme === 'dark';
+            const isDrunk = predictionType === 'drunk';
+            const activeClasses = ACTIVE_TEXT_CLASSES;
+            const inactiveClasses = isDark ? INACTIVE_TEXT_CLASSES_DARK : INACTIVE_TEXT_CLASSES_LIGHT;
+
+            // 1. Slide
+            const transformClasses = ['translate-x-0', 'translate-x-full'];
+            slider.classList.remove(...transformClasses);
+            slider.classList.add(isDrunk ? 'translate-x-0' : 'translate-x-full');
+
+            // 2. Colors
+            [drunkBtn, snowBtn].forEach(btn => {
+                btn.classList.remove(...activeClasses, ...INACTIVE_TEXT_CLASSES_LIGHT, ...INACTIVE_TEXT_CLASSES_DARK);
+            });
+            if (isDrunk) {
+                drunkBtn.classList.add(...activeClasses);
+                snowBtn.classList.add(...inactiveClasses);
+            } else {
+                drunkBtn.classList.add(...inactiveClasses);
+                snowBtn.classList.add(...activeClasses);
+            }
+        }
+
+        function handleTypeSelect(type) {
+            if (predictionType !== type) {
+                // Cancel any ongoing animation if we switch types
+                if (animationFrameId) cancelAnimationFrame(animationFrameId);
+
+                // 1. Immediately slide the toggle and update its colors (visual feedback)
+                predictionType = type; // Optimistic update for selector UI
+                updateTypeSelectorUI();
+
+                // Get fading elements
+                const headerWrapper = document.getElementById('header-fade-wrapper');
+                const contentWrapper = document.getElementById('content-fade-wrapper');
+
+                // 2. Start Fade Out
+                if (headerWrapper) headerWrapper.classList.add('opacity-0');
+                if (contentWrapper) contentWrapper.classList.add('opacity-0');
+
+                // 3. Wait for fade out, then swap content and fade in
+                setTimeout(() => {
+                    // Reset View State
+                    view = 'input';
+                    postalCode = '';
+                    percentage = 0;
+                    finalPercentage = 0;
+                    animationStartTime = 0;
+                    loadingMessage = '';
+
+                    // Update DOM Content
+                    renderHeaderContent(); // Updates content inside the header wrapper
+                    renderContent();       // Updates content inside main area
+
+                    // We need to re-fetch the content wrapper because renderContent() replaces its parent's innerHTML
+                    const newContentWrapper = document.getElementById('content-fade-wrapper');
+
+                    // Force Reflow (optional but helps ensure transition triggers)
+                    void headerWrapper?.offsetWidth;
+
+                    // 4. Fade In
+                    if (headerWrapper) headerWrapper.classList.remove('opacity-0');
+                    if (newContentWrapper) newContentWrapper.classList.remove('opacity-0');
+
+                }, 300); // Wait 300ms matches CSS duration
+            }
+        }
+
+        // --- View Rendering ---
+
+        function getHeaderContentHTML() {
+            const isDark = theme === 'dark';
+            const headerText = isDark ? 'text-white' : 'text-blue-900';
+            const currentIcon = predictionType === 'drunk' ? BeerMugIcon : SnowflakeIcon;
+            const titleText = predictionType === 'drunk' ? 'Drinking Day Predictor' : 'Snow Day Predictor';
+
+            return `
+                <div class="flex items-center">
+                    <div class="${headerText}">
+                        ${currentIcon}
+                    </div>
+                    <h1 class="text-2xl font-extrabold ${headerText} uppercase tracking-widest whitespace-nowrap">
+                        ${titleText}
+                    </h1>
+                </div>
+             `;
+        }
+
+        function renderHeaderContent() {
+            // Updates just the inner HTML of the wrapper
+            HEADER_FADE_WRAPPER.innerHTML = getHeaderContentHTML();
+
+            // Update Header Background separately (it transitions via CSS)
+            const isDark = theme === 'dark';
+            const headerBg = isDark
+                ? 'bg-gradient-to-r from-blue-600 to-cyan-500'
+                : 'bg-gradient-to-r from-blue-300 to-cyan-200';
+
+            // Remove old gradients
+            APP_HEADER_CONTAINER.className = `transition-colors duration-500 ${headerBg}`;
+        }
+
+        function renderFloatingToggle() {
+            const isDark = theme === 'dark';
+            const toggleIcon = isDark ? SunIcon : MoonIcon;
+            const btnBg = isDark ? 'bg-slate-800 text-white border-slate-700' : 'bg-white text-slate-900 border-slate-200';
+
+            return `
+                <button 
+                    onclick="handleThemeToggle()"
+                    class="fixed bottom-6 right-6 p-3 rounded-full shadow-xl border ${btnBg} hover:scale-110 transition-all duration-300 z-50 cursor-pointer"
+                    aria-label="Toggle theme"
+                >
+                    ${toggleIcon}
+                </button>
+            `;
+        }
+
+        function renderTypeSelector() {
+            const isDark = theme === 'dark';
+            const isDrunk = predictionType === 'drunk';
+
+            const containerBg = isDark ? 'bg-slate-800' : 'bg-slate-200';
+            const activeTypeBg = 'bg-blue-600 shadow-lg';
+
+            const initialDrunkClasses = isDrunk ? ACTIVE_TEXT_CLASSES.join(' ') : (isDark ? INACTIVE_TEXT_CLASSES_DARK.join(' ') : INACTIVE_TEXT_CLASSES_LIGHT.join(' '));
+            const initialSnowClasses = !isDrunk ? ACTIVE_TEXT_CLASSES.join(' ') : (isDark ? INACTIVE_TEXT_CLASSES_DARK.join(' ') : INACTIVE_TEXT_CLASSES_LIGHT.join(' '));
+
+            const sliderTransform = isDrunk ? 'translate-x-0' : 'translate-x-full';
+            const sliderClasses = `
+                absolute top-1 left-1 h-[calc(100%-8px)] w-[calc(50%-4px)] 
+                rounded-xl ${activeTypeBg} ${sliderTransform}
+            `;
+
+            return `
+                <div class="flex p-1 rounded-xl mb-6 ${containerBg} shadow-inner text-sm relative" id="type-selector-container">
+                    <div id="type-slider" class="${sliderClasses}"></div>
+                    <button id="drunk-btn" onclick="handleTypeSelect('drunk')" class="selector-button flex-1 py-3 rounded-xl uppercase tracking-wider z-10 text-center ${initialDrunkClasses}">Drinking Day</button>
+                    <button id="snow-btn" onclick="handleTypeSelect('snow')" class="selector-button flex-1 py-3 rounded-xl uppercase tracking-wider z-10 text-center ${initialSnowClasses}">Snow Day</button>
+                </div>
+            `;
+        }
+
+        function getFormContentHTML() {
+            const isDark = theme === 'dark';
+            const highlightText = isDark ? 'text-blue-400' : 'text-blue-600';
+            const textColor = isDark ? 'text-white' : 'text-slate-900';
+            const mutedText = isDark ? 'text-slate-400' : 'text-slate-600';
+            const inputBg = isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-300';
+            const inputPlaceholder = isDark ? 'placeholder-slate-500' : 'placeholder-slate-400';
+            const inputFocus = isDark ? 'focus:ring-blue-500' : 'focus:ring-blue-600';
+            const typeDisplayName = predictionType === 'drunk' ? 'drinking day' : 'snow day';
+
+            return `
+                <div class="text-center space-y-2">
+                    <h2 class="text-3xl font-bold ${textColor}">Will tomorrow be a ${typeDisplayName}?</h2>
+                    <p class="${mutedText} text-lg">Enter your postal code to get started.</p>
+                </div>
+
+                <form onsubmit="handleSubmit(event)" class="space-y-5">
+                    <div class="relative">
+                        <div class="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 ${highlightText}">
+                            ${MapPinIcon}
+                        </div>
+                        <input
+                            type="text"
+                            required
+                            placeholder="e.g. 90210"
+                            value="${postalCode}"
+                            oninput="handleInput(event)"
+                            class="w-full pl-12 pr-4 py-4 ${inputBg} border rounded-xl focus:ring-2 ${inputFocus} focus:border-transparent ${textColor} ${inputPlaceholder} text-lg outline-none transition-all duration-300 shadow-inner"
+                        />
+                    </div>
+                    
+                    <button
+                        type="submit"
+                        class="w-full bg-gradient-to-r from-blue-500 to-cyan-400 hover:from-blue-400 hover:to-cyan-300 text-slate-900 font-extrabold py-4 px-4 rounded-xl transition-all duration-300 flex items-center justify-center group text-lg shadow-lg"
+                    >
+                        Get Your Forecast
+                        <span class="w-6 h-6">${ArrowRightIcon}</span>
+                    </button>
+                </form>
+            `;
+        }
+
+        function renderInputScreen(visible = true) {
+            const selectorHtml = renderTypeSelector();
+            const formHtml = getFormContentHTML();
+
+            const opacityClass = visible ? 'opacity-100' : 'opacity-0';
+
+            return `
+                <div class="space-y-6">
+                    ${selectorHtml}
+                    <div id="content-fade-wrapper" class="space-y-6 transition-opacity duration-300 ease-in-out ${opacityClass}">
+                        ${formHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderLoadingScreen() {
+            const isDark = theme === 'dark';
+            const highlight1 = isDark ? 'text-blue-400' : 'text-blue-600';
+            const primaryText = isDark ? 'text-white' : 'text-slate-900';
+            const messageText = isDark ? 'text-slate-300' : 'text-slate-600';
+            const typeDisplayName = predictionType === 'drunk' ? 'drinking day' : 'snow day';
+
+            return `
+                <div id="content-fade-wrapper" class="flex flex-col items-center space-y-10 animate-fadeIn opacity-100 transition-opacity duration-300">
+                    <div class="text-center space-y-2">
+                        <h2 class="text-2xl font-bold ${highlight1} uppercase tracking-wider">Analyzing ${postalCode}</h2>
+                        <p class="text-xl ${primaryText}">Calculating chance of a ${typeDisplayName}...</p>
+                    </div>
+
+                    <div class="relative w-96 h-48 flex justify-center overflow-hidden">
+                        ${renderGauge(0)}
+                        <div class="absolute bottom-0 flex flex-col items-center justify-end pb-2">
+                            <span id="percentage-text" class="text-6xl font-black ${primaryText} tracking-tighter drop-shadow-lg">
+                                0%
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <p id="loading-message" class="text-center ${messageText} text-lg h-8 animate-pulse">
+                        Initializing System...
+                    </p>
+
+                </div>
+            `;
+        }
+
+        function renderResultScreen() {
+            const isDark = theme === 'dark';
+            const highlight1 = isDark ? 'text-blue-400' : 'text-blue-600';
+            const highlight2 = isDark ? 'text-cyan-400' : 'text-cyan-600';
+            const detailBoxBg = isDark ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-100 border-slate-300';
+            const detailBoxText = isDark ? 'text-slate-300' : 'text-slate-700';
+            const resetLink = isDark ? 'text-blue-500 hover:text-blue-400' : 'text-blue-600 hover:text-blue-700';
+            const primaryText = isDark ? 'text-white' : 'text-slate-900';
+            const typeDisplayName = predictionType === 'drunk' ? 'drinking day' : 'snow day';
+
+            const celebrationMessage = predictionType === 'drunk'
+                ? 'Time to grab a drink and enjoy the celebration!'
+                : 'Grab your sled and hot cocoa!';
+
+            const resultMessage = `Our proprietary, cutting-edge algorithms have delivered the final verdict: <span class="${highlight2} font-bold">A guaranteed 100% chance</span> of an excellent ${typeDisplayName} in your region! ${celebrationMessage}`;
+
+
+            return `
+                <div id="content-fade-wrapper" class="flex flex-col items-center space-y-10 animate-fadeIn opacity-100 transition-opacity duration-300">
+                    <div class="text-center space-y-2">
+                        <h2 class="text-2xl font-bold ${highlight1} uppercase tracking-wider">Forecast for ${postalCode}</h2>
+                        <p class="text-xl ${primaryText}">Prediction Complete!</p>
+                    </div>
+
+                    <div class="relative w-96 h-48 flex justify-center overflow-hidden">
+                        ${renderGauge(finalPercentage)}
+                        <div class="absolute bottom-0 flex flex-col items-center justify-end pb-2">
+                            <span id="percentage-text" class="text-6xl font-black ${primaryText} tracking-tighter drop-shadow-lg">
+                                ${finalPercentage}%
+                            </span>
+                            <span class="text-base font-medium ${isDark ? 'text-slate-300' : 'text-slate-600'} mt-2">
+                                chance of a ${typeDisplayName}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- The width is now w-full to utilize the whole container width -->
+                    <div class="text-center ${detailBoxBg} p-5 rounded-xl w-full border">
+                        <p class="${detailBoxText} text-base leading-relaxed">
+                            ${resultMessage}
+                        </p>
+                    </div>
+
+                    <button 
+                        onclick="handleReset()"
+                        class="${resetLink} text-sm font-medium flex items-center group"
+                    >
+                        ${RefreshCcwIcon}
+                        Check another area
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderGauge(percent) {
+            const radius = 150;
+            const stroke = 30;
+            const normalizedRadius = radius - stroke * 0.5;
+            const circumference = normalizedRadius * Math.PI;
+            // Corrected function call case: calculateDashOffset
+            const initialDashoffset = calculateDashOffset(percent, circumference);
+            const backgroundArcColor = theme === 'dark' ? '#1e293b' : '#e2e8f0';
+
+            let gradientStops;
+            if (predictionType === 'drunk') {
+                gradientStops = `
+                    <stop offset="0%" stop-color="#22d3ee" />
+                    <stop offset="50%" stop-color="#3b82f6" />
+                    <stop offset="100%" stop-color="#6366f1" />
+                `;
+            } else {
+                gradientStops = `
+                    <stop offset="0%" stop-color="#bfdbfe" />
+                    <stop offset="50%" stop-color="#60a5fa" />
+                    <stop offset="100%" stop-color="#1d4ed8" />
+                `;
+            }
+
+            return `
+                <svg
+                    height="${radius}"
+                    width="${radius * 2}"
+                    viewBox="0 0 ${radius * 2} ${radius}"
+                    class="overflow-visible"
+                >
+                    <defs>
+                        <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                            ${gradientStops}
+                        </linearGradient>
+                    </defs>
+                    <path
+                        d="M ${stroke / 2} ${radius} A ${normalizedRadius} ${normalizedRadius} 0 0 1 ${radius * 2 - stroke / 2} ${radius}"
+                        fill="transparent"
+                        stroke="${backgroundArcColor}" 
+                        stroke-width="${stroke}"
+                        stroke-linecap="round"
+                    />
+                    <path
+                        id="gauge-progress-path"
+                        d="M ${stroke / 2} ${radius} A ${normalizedRadius} ${normalizedRadius} 0 0 1 ${radius * 2 - stroke / 2} ${radius}"
+                        fill="transparent"
+                        stroke="url(#gaugeGradient)"
+                        stroke-width="${stroke}"
+                        stroke-dasharray="${circumference} ${circumference}"
+                        stroke-dashoffset="${initialDashoffset}"
+                        class="gauge-progress"
+                        stroke-linecap="round"
+                    />
+                </svg>
+            `;
+        }
+
+        function renderContent() {
+            let content;
+            if (view === 'input') {
+                content = renderInputScreen(true);
+            } else if (view === 'loading') {
+                content = renderLoadingScreen();
+            } else {
+                content = renderResultScreen();
+            }
+            APP_CONTENT.innerHTML = content;
+        }
+
+        function render() {
+            const bodyClass = theme === 'dark'
+                ? 'min-h-screen bg-gradient-to-br from-slate-950 to-blue-950 flex items-center justify-center p-4 font-sans text-slate-100 transition-colors duration-500'
+                : 'min-h-screen bg-gradient-to-br from-slate-200 to-blue-100 flex items-center justify-center p-4 font-sans text-slate-900 transition-colors duration-500';
+
+            document.body.className = bodyClass;
+
+            const appBg = theme === 'dark'
+                ? 'w-full max-w-2xl bg-slate-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-700/50'
+                : 'w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-300/50 shadow-xl';
+
+            APP_CONTAINER.className = `transition-colors duration-500 ${appBg}`;
+
+            renderHeaderContent();
+
+            // Render content based on the current view state
+            renderContent();
+
+            const toggleRoot = document.getElementById('theme-toggle-root');
+            if (toggleRoot) {
+                toggleRoot.innerHTML = renderFloatingToggle();
+            }
+
+            // Ensure the type selector UI is correctly initialized/updated on render
+            updateTypeSelectorUI();
+        }
+
+        document.addEventListener('DOMContentLoaded', render);
+
+    </script>
+</body>
+
+</html>
