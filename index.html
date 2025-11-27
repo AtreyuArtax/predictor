@@ -384,11 +384,11 @@
             const titleText = predictionType === 'drunk' ? 'Drinking Day Predictor' : 'Snow Day Predictor';
 
             return `
-                <div class="flex items-center">
-                    <div class="${headerText}">
+                <div class="flex items-center justify-center px-2 text-center">
+                    <div class="${headerText} flex-shrink-0">
                         ${currentIcon}
                     </div>
-                    <h1 class="text-2xl font-extrabold ${headerText} uppercase tracking-widest whitespace-nowrap">
+                    <h1 class="text-lg sm:text-2xl font-extrabold ${headerText} uppercase tracking-widest leading-tight ml-2">
                         ${titleText}
                     </h1>
                 </div>
@@ -549,16 +549,30 @@
             const primaryText = isDark ? 'text-white' : 'text-slate-900';
             const typeDisplayName = predictionType === 'drunk' ? 'drinking day' : 'snow day';
 
-            const celebrationMessage = predictionType === 'drunk'
-                ? 'Time to grab a drink and enjoy the celebration!'
-                : 'Grab your sled and hot cocoa!';
+            const drunkSuffixes = [
+                `<span class="${highlight2} font-bold">A guaranteed 100% chance</span> of an excellent drinking day in your region! Time to grab a drink and enjoy the celebration!`,
+                `<span class="${highlight2} font-bold">The charts are off the charts!</span> It is unequivocally a drinking day. Bottoms up!`,
+                `<span class="${highlight2} font-bold">Conditions are perfect.</span> We foresee a high-quality drinking day. Cheers to you!`,
+                `<span class="${highlight2} font-bold">It's 5 o'clock everywhere!</span> You are cleared for a drinking day. Enjoy responsibly!`,
+                `<span class="${highlight2} font-bold">Positive confirmation received.</span> Today is destined to be a drinking day. Raise your glass!`
+            ];
 
-            const resultMessage = `Our proprietary, cutting-edge algorithms have delivered the final verdict: <span class="${highlight2} font-bold">A guaranteed 100% chance</span> of an excellent ${typeDisplayName} in your region! ${celebrationMessage}`;
+            const snowSuffixes = [
+                `<span class="${highlight2} font-bold">A guaranteed 100% chance</span> of an excellent snow day in your region! Grab your sled and hot cocoa!`,
+                `<span class="${highlight2} font-bold">Heavy accumulation expected!</span> It is officially a snow day. Stay cozy and warm!`,
+                `<span class="${highlight2} font-bold">The powder is perfect!</span> We predict a legendary snow day. Time to hit the slopes or the couch!`,
+                `<span class="${highlight2} font-bold">Winter wonderland alert!</span> All indicators point to a snow day. Get your boots and mittens!`,
+                `<span class="${highlight2} font-bold">Frosty approves!</span> It's going to be a snow day. Enjoy the white stuff!`
+            ];
 
+            const suffixes = predictionType === 'drunk' ? drunkSuffixes : snowSuffixes;
+            const randomSuffix = suffixes[Math.floor(Math.random() * suffixes.length)];
+
+            const resultMessage = `Our proprietary, cutting-edge algorithms have delivered the final verdict: ${randomSuffix}`;
 
             return `
-                <div id="content-fade-wrapper" class="flex flex-col items-center space-y-10 animate-fadeIn opacity-100 transition-opacity duration-300">
-                    <div class="text-center space-y-2">
+                <div id="content-fade-wrapper" class="flex flex-col items-center space-y-6 animate-fadeIn opacity-100 transition-opacity duration-300">
+                    <div class="text-center space-y-1">
                         <h2 class="text-2xl font-bold ${highlight1} uppercase tracking-wider">Forecast for ${postalCode}</h2>
                         <p class="text-xl ${primaryText}">Prediction Complete!</p>
                     </div>
@@ -576,7 +590,7 @@
                     </div>
 
                     <!-- The width is now w-full to utilize the whole container width -->
-                    <div class="text-center ${detailBoxBg} p-5 rounded-xl w-full border">
+                    <div class="text-center ${detailBoxBg} p-4 rounded-xl w-full border">
                         <p class="${detailBoxText} text-base leading-relaxed">
                             ${resultMessage}
                         </p>
